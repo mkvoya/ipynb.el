@@ -1,0 +1,282 @@
+#+title: ipynb.el
+#+options: toc:2
+
+A cell-oriented Jupyter notebook editor for Emacs, inspired by
+[[https://github.com/ajbucci/ipynb.nvim][ajbucci/ipynb.nvim]]. Open a notebook,
+navigate its cells, edit a cell in its own language mode, and run it against a
+persistent Jupyter kernel. No Jupyter server or browser is required.
+
+* Install
+
+Requires Emacs 28.1 or newer, built with native JSON support. Keep the entire
+checkout, including its =python/= directory, together.
+
+** With use-package
+
+For this local checkout, add the following to your init file. The package loads
+when you open an =.ipynb= file or run =M-x ipynb-create=:
+
+#+begin_src emacs-lisp
+(use-package ipynb
+  :ensure nil
+  :load-path "~/.emacs.d/site-lisp/ipynb.el"
+  :mode ("\\.ipynb\\'" . ipynb-mode)
+  :commands ipynb-create)
+#+end_src
+
+For a configured setup, use this declaration instead:
+
+#+begin_src emacs-lisp
+(use-package ipynb
+  :ensure nil
+  :load-path "~/.emacs.d/site-lisp/ipynb.el"
+  :mode ("\\.ipynb\\'" . ipynb-mode)
+  :commands ipynb-create
+  :custom
+  (ipynb-python-command
+   (expand-file-name "~/.virtualenvs/ipynb/bin/python"))
+  (ipynb-markdown-preview t)
+  (ipynb-auto-inspect t)
+  (ipynb-separator-width nil)) ; Follow the notebook window width.
+#+end_src
+
+Adjust =:load-path= to the checkout location. =:ensure nil= uses the local
+package rather than asking a package archive to install it. Make sure
+=use-package= is available before evaluating either declaration; on Emacs
+versions without it bundled, install it with =M-x package-install= and choose =use-package=. These declarations do not install Python dependencies or
+language servers; set those up below. Start a kernel with =K= or LSP with =L=
+when needed.
+
+** Without use-package
+
+#+begin_src emacs-lisp
+(add-to-list 'load-path "~/.emacs.d/site-lisp/ipynb.el")
+(require 'ipynb)
+#+end_src
+
+** Python dependencies
+
+Reading, editing, and saving notebooks need no Python dependencies. To run Python
+cells, install a bridge environment and a kernel:
+
+#+begin_src sh
+python3 -m venv ~/.virtualenvs/ipynb
+~/.virtualenvs/ipynb/bin/python -m pip install 'jupyter_client>=8,<9' ipykernel 'markdown-it-py>=3,<5'
+#+end_src
+
+#+begin_src emacs-lisp
+(setq ipynb-python-command
+      (expand-file-name "~/.virtualenvs/ipynb/bin/python"))
+#+end_src
+
+When this variable is nil, the package walks upward from the notebook directory
+looking for =.venv=, =venv=, =.virtualenv=, or =env=, then uses =python3= on PATH.
+The bridge requires Python 3.9+. The selected kernelspec controls the actual
+kernel executable; it can use a different environment from the bridge.
+
+For Julia, R, or another language, install its Jupyter kernel separately and use
+=M-x ipynb-set-kernel= to set its kernelspec and language. Use
+=M-x ipynb-list-kernels= to list kernels visible to the bridge. Install the
+corresponding Emacs major mode for syntax highlighting and editing; otherwise
+cell editors fall back to =text-mode=.
+
+* Workflow
+
+1. Visit an existing =.ipynb= with =C-x C-f=, or use =M-x ipynb-create=.
+2. Press =RET= on a cell to edit it. =C-c C-c= applies edits and returns to the
+   notebook; =C-c C-k= discards changes since the last sync.
+3. Press =K= in the notebook to start its kernel. Wait for =[idle]= in the mode line.
+4. Press =C-RET= or =C-c C-c= to run a code cell. Outputs appear below it.
+5. Save the notebook with =C-x C-s=.
+
+A notebook has a read-only display buffer, while each open cell has an ordinary
+editable language buffer. Saving the notebook also syncs all its open cell
+editors. Cell edits and execution results mark the notebook modified. Opening a
+notebook never starts a kernel or executes code.
+
+** Notebook keys
+
+| Key | Action |
+|---+---|
+| =n=, =p= | Next / previous cell |
+| =j= | Pick a cell |
+| =RET= | Edit cell |
+| =a=, =b= | Insert code cell above / below |
+| =d=, =w=, =y= | Cut / copy / paste cell (=C-u y= pastes above) |
+| =M-up=, =M-down= | Move cell |
+| =t= | Convert to code, Markdown, or raw |
+| =TAB= | Fold / unfold cell |
+| =u=, =C-r= | Undo / redo notebook edits |
+| =C-RET=, =C-c C-c= | Execute current code cell |
+| =S-RET= | Execute and advance; append a cell at the end |
+| =C-c C-a= | Execute all code cells (=C-u= runs current and below) |
+| =o= | Open copyable output buffer |
+| =c= | Clear output (=C-u c= clears all) |
+| =K=, =I=, =R=, =Q= | Start / interrupt / restart / shut down kernel |
+| =h=, =H= | Inspect an expression / toggle kernel auto-hover |
+| =v= | Variable panel for current cell (=C-u v= covers all code cells) |
+| =L= | Start cross-cell LSP |
+| =P= | Toggle inline Markdown previews |
+| =C-c C-p= | Open standalone Markdown preview |
+| =C-x C-s= | Save notebook JSON |
+
+** Cell editor keys
+
+| Key | Action |
+|---+---|
+| =C-c C-c= | Sync cell and return |
+| =C-c C-k= | Discard unsynced changes and return |
+| =C-c C-s= | Sync cell, staying in editor |
+| =C-c C-e= | Sync and execute cell |
+| =C-c C-d= | Inspect object at point |
+| =C-c C-v= | Variable panel |
+| =C-c C-p= | Preview Markdown, including unsaved edits |
+| =C-c l s= | Start cross-cell LSP |
+| =C-c l d=, =M-.= | Go to definition |
+| =C-c l r=, =M-?= | Find references |
+| =C-c l n= | Rename across cells |
+| =C-c l h= | LSP hover documentation |
+| =C-c l f= | Format current cell (=C-u= formats all code cells) |
+| =M-TAB= / =C-M-i= | LSP completion, with kernel completion as fallback |
+
+Normal major-mode editing, indentation, font locking, and undo work in cell
+editors. =C-c C-s= syncs to the notebook model; save the notebook to persist it
+on disk. Structural deletion, conversion, notebook undo, and revert require
+closing cell editors first so edits cannot silently become detached.
+
+* Cross-cell language support
+
+Press =L= in a notebook or =C-c l s= in a cell editor. The client discovers
+BasedPyright, Pyright, or pylsp for Python; candidate commands for R, Julia,
+JavaScript, and TypeScript are configured in =ipynb-lsp-servers=. Install the
+server separately. For a custom server/environment:
+
+#+begin_src emacs-lisp
+(setq ipynb-lsp-server-command '("/path/to/pylsp"))
+;; Or leave nil to discover a server on exec-path.
+(setq ipynb-lsp-settings '(:python (:pythonPath "/path/to/python")))
+#+end_src
+
+=C-u M-x ipynb-lsp-start= prompts for a command for this session. No shell is
+invoked. =M-x ipynb-lsp-stop= stops the notebook's server. Closing the notebook
+also stops it. LSP does not require a running kernel or execute notebook code.
+
+Every code cell, including unsaved cell editor text, is mirrored into one
+in-memory document with a file URI beside the notebook. No shadow file is
+written to disk. Its project root comes from Emacs project discovery. Markdown
+and raw cells are excluded. Edits sync after a short idle delay and immediately
+before language requests. Positions use UTF-16, including non-BMP characters.
+
+Completion (including additional import edits), hover/Eldoc, definitions,
+references, and rename work across cells. =M-,= returns from a definition.
+Diagnostics appear through Flymake in cell editors; use
+=M-x flymake-show-buffer-diagnostics= for a list. Versioned stale diagnostics are
+ignored. Rename applies all notebook edits together; edits crossing cell
+boundaries or targeting other files are rejected without partial changes.
+
+Formatting uses separate temporary documents for each cell to preserve
+boundaries. It requires a formatting-capable server, such as pylsp with autopep8;
+BasedPyright/Pyright do not provide formatting. =C-u C-c l f= formats all code
+cells as one notebook undo operation. Normal notebook saving persists changes.
+
+* Variable inspector
+
+Press =v= in a code cell or =C-c C-v= in its editor. The panel lists names, types,
+and values/documentation for objects referenced by the cell. =C-u v= covers all
+code cells. Strings and comments are excluded; inspectable functions/modules
+may also appear. The panel reads *live kernel state*, so execute assignments
+first. Unexecuted or undefined names do not appear.
+
+The implementation uses language-neutral Jupyter =inspect= requests rather than
+executing Python-specific introspection code. Types/values depend on the
+kernel's documentation format. =g= refreshes (including names in unsaved edits),
+=RET= opens full documentation, and =q= closes the panel. Requests are bounded
+and old refresh responses cannot replace newer results. =H= in the notebook
+toggles automatic kernel inspection through Eldoc in existing and future editors.
+
+* Markdown and separators
+
+Markdown cells render inline by default with headings, emphasis, lists, links,
+tables, fenced code, and supported embedded PNG/JPEG/SVG attachments. Previews
+use =markdown-it-py= in =ipynb-python-command= and Emacs's built-in SHR/libxml2.
+When unavailable, the notebook shows editable Markdown source instead; toggling
+=P= reports the renderer error. =M-x ipynb-preview-markdown= / =C-c C-p= opens a
+separate preview; =g= refreshes it from the cell's current editor text.
+
+No browser is needed. Raw HTML is shown as text. Images from URLs or filesystem
+paths are shown as alt text; embedded attachments and data images can render
+without fetching resources. Links remain clickable. The original Markdown and
+attachments are unchanged by rendering. Set =ipynb-markdown-preview= to nil to
+start with source display, or press =P= to toggle per notebook.
+
+Cell separators fill the notebook window and adapt when it resizes. For a fixed
+width, set =(setq ipynb-separator-width 100)=.
+
+* Outputs and kernels
+
+- Streams, execution results, errors, ANSI colors, and display updates appear inline.
+- PNG, JPEG, and SVG render when supported by the Emacs graphical build.
+  Terminal Emacs uses text fallbacks. All MIME representations remain in the file.
+- =input()= and password input use the minibuffer. Canceling input interrupts an
+  owned kernel. Kernels run with the notebook's directory as their working directory.
+- Execution requests retain their cell association when cells move. Output for
+  deleted or replaced cells is ignored. Run-all queues cells in notebook order
+  and continues after errors.
+- =M-x ipynb-kernel-connect= attaches to a local Jupyter connection file. Closing
+  the notebook disconnects; it does not shut down an externally owned kernel.
+  Interrupt and restart are available only for kernels this notebook started.
+- Closing a notebook stops its owned kernel. =*ipynb kernel log*= contains bridge
+  and kernel diagnostics.
+- Set =ipynb-auto-inspect= to =t= before opening a cell editor to enable automatic
+  inspection through Eldoc. Inspection and completion depend on kernel support.
+
+* Preservation and current limits
+
+The core notebook, cross-cell LSP, inspector, and Markdown workflows are
+implemented. The following limits still apply:
+
+- Supports nbformat 4. Notebook/cell metadata, unknown JSON fields, attachments,
+  output MIME bundles, nulls, and booleans are preserved. Existing source arrays
+  are preserved until edited; edited sources are written as strings, which the
+  notebook format allows. Missing or duplicate cell IDs are repaired on load.
+- Saves are pretty-printed JSON, not byte-identical round trips. Converting a cell
+  type removes fields that no longer apply, including attachments and code outputs.
+- Native auto-save is disabled for the rendered notebook buffer to avoid writing
+  its display as JSON. Save explicitly; ordinary cell editor recovery is separate.
+- Notebook undo covers source commits and cell operations, not kernel state,
+  incoming outputs, or kernelspec changes. Undoing execution is not possible.
+- LaTeX math typesetting, executable HTML/JavaScript widgets, and remote/TRAMP
+  execution are not implemented. Their source and output data are preserved.
+- LSP features depend on the installed server. Snippet completions, workspace
+  resource operations, and rename edits outside the notebook are not applied.
+  Definitions/references may navigate to ordinary project files.
+- The inspector shows names referenced by cells, not a complete kernel namespace
+  browser; automatic hover uses the kernel's inspect protocol.
+- The view is rebuilt when output arrives; very large notebooks or high-volume
+  streaming output may be slow. Image display has a text fallback on unsupported builds.
+
+* Development
+
+#+begin_src sh
+make compile test EMACS=/path/to/emacs
+python3 -m pip install -r python/requirements.txt ipykernel nbformat
+make test-kernel test-live test-preview EMACS=/path/to/emacs PYTHON=/path/to/python3
+# Cross-cell integration uses BasedPyright/Pyright; formatting uses pylsp:
+IPYNB_TEST_LSP=/path/to/basedpyright-langserver IPYNB_TEST_PYLSP=/path/to/pylsp \
+  make test-lsp EMACS=/path/to/emacs
+#+end_src
+
+ERT covers notebook operations, editor commit/cancel, Unicode and rich-data
+round trips, invalid files, revert, and output updates. Python integration tests
+launch real kernels and cover execution, errors, display updates, completion,
+inspection, stdin, interrupt, restart, and queued execution. The live ERT test
+exercises Emacs → bridge → kernel → notebook save and validates the result with
+=nbformat=, and checks the live variable panel. LSP tests cover Unicode mappings,
+atomic cross-cell edits, diagnostic routing, auto-import completion, real
+BasedPyright definitions/references/rename/completion, and pylsp formatting.
+Markdown tests exercise actual rendering, caching, source preservation, and
+fallback behavior. Kernel tests need local socket access. Optional integration
+tests skip when their configured interpreter/server is absent.
+
+The implementation is original Emacs Lisp and Python, inspired by the upstream
+project's documented workflow. Licensed under GPL-3.0-or-later.
